@@ -1,11 +1,13 @@
-from typing import Optional
+from typing import Optional, Any, List
 from pathlib import Path
+from enum import Enum
 
 import pandas as pd
-from enum import Enum
 from rdkit import Chem
+from rdkit.Chem import Mol, Atom, Bond
 
 import torch
+from torch import Tensor
 from torch_geometric.data import Data, Dataset
 
 class RawDatasetList(str, Enum): 
@@ -15,81 +17,137 @@ class RawDatasetList(str, Enum):
     TOX21           = "Tox21.csv"
 
 class MoleculeDataset(Dataset):
-    def __init__(self, csv_file, smiles_col='smiles', target_col='target'):
+    def __init__(
+        self, 
+        csv_file: str, 
+        smiles_col: str = 'smiles', 
+        target_col: str = 'target',
+        transform: Optional[Any] = None,
+        pre_transform: Optional[Any] = None
+    ) -> None:
         """
-        csv_file: Path to CSV file for raw data
-        smiles_col: Column name for 'smiles' strings
-        target_col: Column name for target values (solubility, toxicity)
+        Initialize molecule dataset
+        
+        Args:
+            csv_file: Path to CSV file containing SMILES and targets
+            smiles_col: Name of column containing SMILES strings in csv
+            target_col: Name of column containing target values in csv
+            transform: Optional transform to apply to data
+            pre_transform: Optional pre-transform to apply to data
         """
-        super().__init__()
-        self.file = csv_file
-        self.df = pd.read_csv(csv_file)
-        self.smiles_col = smiles_col
-        self.target_col = target_col
-
-    @property
-    def len(self):
-        return len(self.df)
-    
+        super().__init__(None, transform, pre_transform)
+        self.df: pd.DataFrame = pd.read_csv(csv_file)
+        self.file: str = csv_file
+        self.smiles_col: str = smiles_col
+        self.target_col: str = target_col
+        
     def get(self, idx: int) -> Optional[Data]:
-        smiles = self.df.iloc[idx][self.smiles_col]
-        target = self.df.iloc[idx][self.target_col]
+        """
+        Get a single molecule graph
+        
+        Args:
+            idx: Index of molecule to retrieve
+
+        Returns:
+            PyG Data object or None if invalid molecule
+        """
+        smiles: str = self.df.iloc[idx][self.smiles_col]
+        target: float = self.df.iloc[idx][self.target_col]
         
         # Convert SMILES to graph
-        mol = Chem.MolFromSmiles(smiles)
+        mol: Optional[Mol] = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None
         
-        # Extract atom features
-        atom_features = []
+        # Extract features
+        x: Tensor = self._get_node_features(mol)
+        edge_index: Tensor = self._get_edge_index(mol)
+        edge_attr: Tensor = self._get_edge_features(mol)
+        y: Tensor = torch.tensor([target], dtype=torch.float)
+        
+        data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
+        
+        if self.transform is not None:
+            data = self.transform(data)
+            
+        return data
+    
+    def _get_node_features(self, mol: Mol) -> Tensor:
+        """
+        Extract atom features from molecule
+        """
+        atom_features: List[List[float]] = []
         for atom in mol.GetAtoms():
-            features = self.get_atom_features(atom)
+            features: List[float] = self._get_atom_features(atom)
             atom_features.append(features)
         
-        x = torch.tensor(atom_features, dtype=torch.float)
+        return torch.tensor(atom_features, dtype=torch.float)
+    
+    def _get_atom_features(self, atom: Atom) -> List[float]:
+        """
+        Extract features for a single atom
+        """
+        return [
+            atom.GetAtomicNum(), 
+            atom.GetDegree(), 
+            atom.GetFormalCharge(), 
+            atom.GetHybridization(), 
+            atom.GetIsAromatic(), 
+            atom.GetTotalNumHs(), 
+        ]
+    
+    def _get_edge_index(self, mol: Mol) -> Tensor:
+        """
+        Extract bond connectivity from molecule
+        """
+        edge_indices: List[List[int]] = []
         
-        # Extract bonds (edges)
-        edge_index = []
-        edge_attr = []
         for bond in mol.GetBonds():
-            i = bond.GetBeginAtomIdx()
-            j = bond.GetEndAtomIdx()
+            i: int = bond.GetBeginAtomIdx()
+            j: int = bond.GetEndAtomIdx()
             
             # Add both directions (undirected graph)
-            edge_index.append([i, j])
-            edge_index.append([j, i])
-            
-            bond_features = self.get_bond_features(bond)
-            edge_attr.append(bond_features)
-            edge_attr.append(bond_features)
+            edge_indices.append([i, j])
+            edge_indices.append([j, i])
         
-        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
-        edge_attr = torch.tensor(edge_attr, dtype=torch.float)
+        if len(edge_indices) == 0:
+            # Handle single-atom molecules
+            return torch.zeros((2, 0), dtype=torch.long)
         
-        # Target
-        y = torch.tensor([target], dtype=torch.float)
-        
-        return Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=y)
+        return torch.tensor(edge_indices, dtype=torch.long).t().contiguous()
     
-    def get_atom_features(self, atom):
-        """Extract features for a single atom"""
+    def _get_edge_features(self, mol: Mol) -> Tensor:
+        """
+        Extract bond features from molecule
+        """
+        edge_features: List[List[float]] = []
+        
+        for bond in mol.GetBonds():
+            features: List[float] = self._get_bond_features(bond)
+            # Add features for both directions
+            edge_features.append(features)
+            edge_features.append(features)
+        
+        if len(edge_features) == 0:
+            # Handle single-atom molecules
+            return torch.zeros((0, 3), dtype=torch.float)
+        
+        return torch.tensor(edge_features, dtype=torch.float)
+    
+    def _get_bond_features(self, bond: Bond) -> List[float]:
+        """
+        Extract features for a single bond
+        """
         return [
-            atom.GetAtomicNum(),                # Atomic number
-            atom.GetDegree(),                   # Number of bonds
-            atom.GetFormalCharge(),             # Charge
-            atom.GetHybridization().real,       # Hybridization
-            atom.GetIsAromatic(),               # Aromaticity
-            atom.GetTotalNumHs(),               # Number of hydrogens
+            bond.GetBondTypeAsDouble(),
+            bond.GetIsAromatic(),
+            bond.IsInRing(),
         ]
     
-    def get_bond_features(self, bond):
-        """Extract features for a single bond"""
-        return [
-            bond.GetBondTypeAsDouble(),     # Bond type (1, 2, 3, 1.5)
-            bond.GetIsAromatic(),           
-            bond.IsInRing(),                
-        ]
+    @property
+    def len(self) -> int:
+        return len(self.df)
     
     def __repr__(self) -> str:
-        filename = Path(self.file).name
+        filename: str = Path(self.file).name
         return f"MoleculeDataset(file={str(filename)}, len={self.len})"
