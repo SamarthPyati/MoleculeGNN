@@ -8,13 +8,7 @@ from torch_geometric.data import Data
 class SimpleMoleculeGCN(Module):
     """
     Simple Graph Convolutional Network for molecular property prediction
-    
-    Architecture:
-        - 3 GCN layers with batch normalization
-        - Global mean pooling
-        - 2-layer MLP for prediction
     """
-    
     def __init__(
         self, 
         num_node_features: int,

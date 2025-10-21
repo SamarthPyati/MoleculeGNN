@@ -13,11 +13,10 @@ from tqdm import tqdm
 
 class ModelTrainer:
     """Trainer class for molecular property prediction"""
-    
     def __init__(
         self,
         model: Module,
-        config: TrainingConfig,
+        config: TrainingConfig = TrainingConfig(),
         device: Optional[str] = None
     ) -> None:
         """
@@ -62,7 +61,11 @@ class ModelTrainer:
             optimizer.zero_grad()
             
             out: Tensor = self.model(batch)
-            loss: Tensor = criterion(out, batch.y)
+            # Ensure target shape matches model output (N, 1) for BCEWithLogitsLoss
+            targets = batch.y
+            if targets.dim() == 1:
+                targets = targets.unsqueeze(1)
+            loss: Tensor = criterion(out, targets.float())
             
             loss.backward()
             optimizer.step()
@@ -97,11 +100,15 @@ class ModelTrainer:
             for batch in loader:
                 batch = batch.to(self.device)
                 out: Tensor = self.model(batch)
-                loss: Tensor = criterion(out, batch.y)
+                # match shapes as in training
+                batch_targets = batch.y
+                if batch_targets.dim() == 1:
+                    batch_targets = batch_targets.unsqueeze(1)
+                loss: Tensor = criterion(out, batch_targets.float())
                 
                 total_loss += loss.item() * batch.num_graphs
                 predictions.append(out.cpu())
-                targets.append(batch.y.cpu())
+                targets.append(batch_targets.cpu())
         
         predictions_tensor: Tensor = torch.cat(predictions, dim=0)
         targets_tensor: Tensor = torch.cat(targets, dim=0)
@@ -110,13 +117,31 @@ class ModelTrainer:
         
         # Calculate metric based on task
         if task == 'classification':
-            predictions_prob: np.ndarray = torch.sigmoid(predictions_tensor).numpy()
-            targets_np: np.ndarray = targets_tensor.numpy()
-            metric: float = roc_auc_score(targets_np, predictions_prob)
+            # flatten to shape (N,) for roc_auc_score when single-output
+            predictions_prob: np.ndarray = torch.sigmoid(predictions_tensor).numpy().ravel()
+            targets_np: np.ndarray = targets_tensor.numpy().ravel()
+            # Ensure binary labels for roc_auc_score. If labels are continuous/probabilistic,
+            # threshold at 0.5. If there are >2 distinct values after thresholding, raise.
+            # This avoids "continuous format is not supported".
+            if not np.array_equal(np.unique(targets_np), np.unique(targets_np).astype(int)):
+                # threshold probabilistic labels to binary
+                targets_bin = (targets_np >= 0.5).astype(int)
+            else:
+                targets_bin = targets_np.astype(int)
+
+            # final sanity check: roc_auc requires exactly two label classes
+            uniq = np.unique(targets_bin)
+            if uniq.size != 2:
+                raise ValueError(
+                    f'ROC-AUC requires binary labels but got {uniq}. '
+                    'If this is a regression task set task="regression".'
+                )
+
+            metric: float = roc_auc_score(targets_bin, predictions_prob)
             metric_name: str = 'ROC-AUC'
         else:  # regression
-            predictions_np: np.ndarray = predictions_tensor.numpy()
-            targets_np: np.ndarray = targets_tensor.numpy()
+            predictions_np: np.ndarray = predictions_tensor.numpy().ravel()
+            targets_np: np.ndarray = targets_tensor.numpy().ravel()
             metric: float = root_mean_squared_error(
                 targets_np, predictions_np
             )

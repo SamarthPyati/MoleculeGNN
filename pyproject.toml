@@ -5,6 +5,7 @@ description = "Predicting molecular properties using Graph Neural Networks."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "matplotlib>=3.10.7",
     "pandas>=2.3.3",
     "rdkit>=2025.3.6",
     "scikit-learn>=1.7.2",
