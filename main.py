@@ -15,20 +15,19 @@ def main():
     dataset = [data for data in dataset if data is not None]
     
     # Split data (train, test, val)
-    train_idx, temp_idx = train_test_split(range(len(dataset)), test_size=0.3, random_state=42)
-    val_idx, test_idx = train_test_split(temp_idx, test_size=0.5, random_state=42)
+    train_dataset, temp = train_test_split(dataset, test_size=0.3, random_state=42)
+    # Split half of temp into test and validation
+    val_dataset, test_dataset = train_test_split(temp, test_size=0.5, random_state=42)
     
-    train_dataset = [dataset[i] for i in train_idx]
-    val_dataset = [dataset[i] for i in val_idx]
-    test_dataset = [dataset[i] for i in test_idx]
-    
+    BATCH_SIZE: int = 32
+
     # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
     
     # Init model
-    num_node_features = 6  # Based on get_atom_features
+    num_node_features = 6  # Based on get_atom_features (grabbed only 6 feature, have to increase)
     model = SimpleMoleculeGCN(
         num_node_features=num_node_features,
         hidden_dim=128,
@@ -74,7 +73,7 @@ def main():
     plt.title('Validation Performance')
     
     plt.tight_layout()
-    # plt.savefig('training_history.png')
+    plt.savefig('training_history.png')
     plt.show()
 
 if __name__ == '__main__':

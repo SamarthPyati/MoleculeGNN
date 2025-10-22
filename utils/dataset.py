@@ -146,7 +146,7 @@ class MoleculeDataset(Dataset):
     
     def len(self) -> int:
         return len(self.df)
-    
+
     def __repr__(self) -> str:
         filename: str = Path(self.file).name
-        return f"MoleculeDataset(file={str(filename)}, len={self.len()})"
+        return f"MoleculeDataset(file={filename}, len={self.len()})"
