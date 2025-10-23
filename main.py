@@ -3,7 +3,7 @@ import torch
 from torch_geometric.loader import DataLoader
 from sklearn.model_selection import train_test_split
 
-from utils import MoleculeDataset, ModelTrainer
+from core import MoleculeDataset, ModelTrainer
 from models import SimpleMoleculeGCN
 
 def main():
