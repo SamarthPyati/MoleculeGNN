@@ -17,6 +17,10 @@ class RawDatasetList(str, Enum):
     TOX21           = "Tox21.csv"
 
 class MoleculeDataset(Dataset):
+
+    _N_NODE_FEATURES: int = 6
+    _N_EDGE_FEATURES: int = 3
+
     def __init__(
         self, 
         csv_file: str, 
@@ -87,7 +91,7 @@ class MoleculeDataset(Dataset):
         """
         Extract features for a single atom
         """
-        return [
+        features: List[float] = [
             atom.GetAtomicNum(), 
             atom.GetDegree(), 
             atom.GetFormalCharge(), 
@@ -95,6 +99,9 @@ class MoleculeDataset(Dataset):
             atom.GetIsAromatic(), 
             atom.GetTotalNumHs(), 
         ]
+        
+        assert len(features) == MoleculeDataset._N_NODE_FEATURES
+        return features
     
     def _get_edge_index(self, mol: Mol) -> Tensor:
         """
@@ -138,11 +145,13 @@ class MoleculeDataset(Dataset):
         """
         Extract features for a single bond
         """
-        return [
+        features: List[float] = [
             bond.GetBondTypeAsDouble(),
             bond.GetIsAromatic(),
             bond.IsInRing(),
         ]
+        assert len(features) == MoleculeDataset._N_EDGE_FEATURES
+        return features
     
     def len(self) -> int:
         return len(self.df)
