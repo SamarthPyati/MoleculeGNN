@@ -16,6 +16,35 @@ class RawDatasetList(str, Enum):
     FREESOLV        = "FreeSolv.csv"
     TOX21           = "Tox21.csv"
 
+def get_atom_features(atom: Atom) -> List[float]:
+    """
+    Extract features for a single atom. 
+    Share between ModelPredictor and MoleculeDataset class. 
+    """
+    features: List[float] = [
+        atom.GetAtomicNum(), 
+        atom.GetDegree(), 
+        atom.GetFormalCharge(), 
+        atom.GetHybridization(), 
+        atom.GetIsAromatic(), 
+        atom.GetTotalNumHs(), 
+    ]
+    
+    assert len(features) == MoleculeDataset._N_NODE_FEATURES, f"Expected {MoleculeDataset._N_NODE_FEATURES} atom features, got {len(features)}."
+    return features
+
+def get_bond_features(bond: Bond) -> List[float]:
+    """
+    Extract features for a single bond
+    """
+    features: List[float] = [
+        bond.GetBondTypeAsDouble(),
+        bond.GetIsAromatic(),
+        bond.IsInRing(),
+    ]
+    assert len(features) == MoleculeDataset._N_EDGE_FEATURES, f"Expected {MoleculeDataset._N_EDGE_FEATURES} bond features, got {len(features)}."
+    return features
+
 class MoleculeDataset(Dataset):
 
     _N_NODE_FEATURES: int = 6
@@ -80,28 +109,8 @@ class MoleculeDataset(Dataset):
         """
         Extract atom features from molecule
         """
-        atom_features: List[List[float]] = []
-        for atom in mol.GetAtoms():
-            features: List[float] = self._get_atom_features(atom)
-            atom_features.append(features)
-        
+        atom_features: List[List[float]] = [get_atom_features(atom) for atom in mol.GetAtoms()]
         return torch.tensor(atom_features, dtype=torch.float)
-    
-    def _get_atom_features(self, atom: Atom) -> List[float]:
-        """
-        Extract features for a single atom
-        """
-        features: List[float] = [
-            atom.GetAtomicNum(), 
-            atom.GetDegree(), 
-            atom.GetFormalCharge(), 
-            atom.GetHybridization(), 
-            atom.GetIsAromatic(), 
-            atom.GetTotalNumHs(), 
-        ]
-        
-        assert len(features) == MoleculeDataset._N_NODE_FEATURES
-        return features
     
     def _get_edge_index(self, mol: Mol) -> Tensor:
         """
@@ -130,7 +139,7 @@ class MoleculeDataset(Dataset):
         edge_features: List[List[float]] = []
         
         for bond in mol.GetBonds():
-            features: List[float] = self._get_bond_features(bond)
+            features: List[float] = get_bond_features(bond)
             # Add features for both directions
             edge_features.append(features)
             edge_features.append(features)
@@ -141,21 +150,11 @@ class MoleculeDataset(Dataset):
         
         return torch.tensor(edge_features, dtype=torch.float)
     
-    def _get_bond_features(self, bond: Bond) -> List[float]:
-        """
-        Extract features for a single bond
-        """
-        features: List[float] = [
-            bond.GetBondTypeAsDouble(),
-            bond.GetIsAromatic(),
-            bond.IsInRing(),
-        ]
-        assert len(features) == MoleculeDataset._N_EDGE_FEATURES
-        return features
-    
     def len(self) -> int:
         return len(self.df)
 
     def __repr__(self) -> str:
         filename: str = Path(self.file).name
         return f"MoleculeDataset(file={filename}, len={self.len()})"
+
+
