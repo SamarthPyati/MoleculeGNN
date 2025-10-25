@@ -52,9 +52,9 @@ class SimpleMoleculeGCN(Module):
         Returns:
             Tensor of predictions [batch_size, num_classes]
         """
-        x: Tensor = data.x
-        edge_index: Tensor = data.edge_index
-        batch: Tensor = data.batch
+        x = data.x
+        edge_index = data.edge_index
+        batch = data.batch
         
         # Graph convolutions
         x = self.conv1(x, edge_index)

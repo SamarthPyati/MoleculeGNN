@@ -75,10 +75,10 @@ class AdvancedMoleculeGNN(Module):
         Returns:
             Tensor of predictions
         """
-        x: Tensor = data.x
-        edge_index: Tensor = data.edge_index
-        edge_attr: Tensor = data.edge_attr
-        batch: Tensor = data.batch
+        x = data.x
+        edge_index = data.edge_index
+        edge_attr = data.edge_attr
+        batch = data.batch
         
         # Encode edges
         edge_embedding: Tensor = self.edge_encoder(edge_attr)
