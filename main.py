@@ -1,80 +1,128 @@
 #!.venv/bin/python3
-import torch
-from torch_geometric.loader import DataLoader
-from sklearn.model_selection import train_test_split
+from typing import Dict
 
-from core import MoleculeDataset, ModelTrainer
+from core.utils import (
+    load_dataset, 
+    set_seed, 
+    create_data_loaders, 
+    count_parameters, 
+    save_model
+)
+from core.dataset import MoleculeDataset
+from core.trainer import ModelTrainer
+from core.evaluator import (
+    ModelEvaluator, 
+    plot_training_history
+)
 from models import SimpleMoleculeGCN
+from config import ModelConfig, TrainingConfig
 
-def main():
-    # Load dataset
-    print("Loading dataset...")
-    dataset = MoleculeDataset('data/raw/ESOL.csv', smiles_col='smiles', target_col='measured log solubility in mols per litre')
+def main() -> None:
+    """Main training pipeline with type hints"""
     
-    # Remove None values (invalid molecules)
-    dataset = [data for data in dataset if data is not None]
+    # Set seed for reproducibility
+    set_seed(42)
     
-    # Split data (train, test, val)
-    train_dataset, temp = train_test_split(dataset, test_size=0.3, random_state=42)
-    # Split half of temp into test and validation
-    val_dataset, test_dataset = train_test_split(temp, test_size=0.5, random_state=42)
-    
-    BATCH_SIZE: int = 32
-
-    # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    
-    # Init model
-    num_node_features = 6  # Based on get_atom_features (grabbed only 6 feature, have to increase)
-    model = SimpleMoleculeGCN(
-        num_node_features=num_node_features,
+    # Configuration
+    model_config = ModelConfig(
+        num_node_features=6,
         hidden_dim=128,
-        num_classes=1
+        num_classes=1,
+        num_layers=3,
+        dropout=0.3
     )
     
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
-    
-    # Train
-    trainer = ModelTrainer(model)
-    trainer.fit(
-        train_loader, 
-        val_loader, 
-        epochs=5, 
-        lr=0.001,
-        task='classification',
-        patience=15
+    training_config = TrainingConfig(
+        batch_size=32,
+        learning_rate=0.001,
+        weight_decay=1e-5,
+        epochs=100,
+        patience=15,
+        task='classification'
     )
     
-    # Evaluate on test set
-    criterion = torch.nn.BCEWithLogitsLoss()
-    test_loss, test_metric, metric_name = trainer.evaluate(test_loader, criterion, 'classification')
-    print(f'\nTest Results: Loss: {test_loss:.4f}, {metric_name}: {test_metric:.4f}')
+    print("=" * 70)
+    print("Molecular Property Prediction with GNNs")
+    print("=" * 70)
     
-    # Plot training history
-    import matplotlib.pyplot as plt
+    # 1. Load dataset
+    print("\n1. Loading dataset...")
+    dataset: MoleculeDataset = load_dataset(
+        'data/raw/tox21.csv',
+        smiles_col='smiles',
+        target_col='SR-HSE'
+    )
+    print(f"   Loaded {len(dataset)} molecules")
     
-    plt.figure(figsize=(12, 4))
+    # 2. Create data loaders
+    print("\n2. Creating data loaders...")
+    train_loader, val_loader, test_loader = create_data_loaders(
+        dataset,
+        train_ratio=0.7,
+        val_ratio=0.15,
+        batch_size=training_config.batch_size,
+        num_workers=training_config.num_workers
+    )
+    print(f"   Train: {len(train_loader.dataset)} molecules")
+    print(f"   Val:   {len(val_loader.dataset)} molecules")
+    print(f"   Test:  {len(test_loader.dataset)} molecules")
     
-    plt.subplot(1, 2, 1)
-    plt.plot(trainer.history['train_loss'], label='Train Loss')
-    plt.plot(trainer.history['val_loss'], label='Val Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.title('Training History')
+    # 3. Initialize model
+    print("\n3. Initializing model...")
+    model: SimpleMoleculeGCN = SimpleMoleculeGCN(
+        num_node_features=model_config.num_node_features,
+        hidden_dim=model_config.hidden_dim,
+        num_classes=model_config.num_classes,
+        dropout=model_config.dropout
+    )
     
-    plt.subplot(1, 2, 2)
-    plt.plot(trainer.history['val_metric'], label='Val ROC-AUC')
-    plt.xlabel('Epoch')
-    plt.ylabel('ROC-AUC')
-    plt.legend()
-    plt.title('Validation Performance')
+    num_params: int = count_parameters(model)
+    print(f"   Model: {model.__class__.__name__}")
+    print(f"   Parameters: {num_params:,}")
+    print(f"   Device: {training_config.device}")
     
-    plt.tight_layout()
-    plt.savefig('training_history.png')
-    plt.show()
+    # 4. Train model
+    print("\n4. Training model...")
+    print("-" * 70)
+    trainer = ModelTrainer(model, training_config)
+    trainer.fit(train_loader, val_loader)
+    
+    # 5. Evaluate on test set
+    print("\n5. Evaluating on test set...")
+    print("-" * 70)
+    
+    evaluator = ModelEvaluator(model, training_config.device)
+    
+    if training_config.task == 'classification':
+        metrics: Dict[str, float] = evaluator.evaluate_classification(test_loader)
+        print(f"   Accuracy:  {metrics['accuracy']:.4f}")
+        print(f"   Precision: {metrics['precision']:.4f}")
+        print(f"   Recall:    {metrics['recall']:.4f}")
+        print(f"   F1 Score:  {metrics['f1']:.4f}")
+        print(f"   ROC-AUC:   {metrics['roc_auc']:.4f}")
+    else:
+        metrics: Dict[str, float] = evaluator.evaluate_regression(test_loader)
+        print(f"   MSE:  {metrics['mse']:.4f}")
+        print(f"   RMSE: {metrics['rmse']:.4f}")
+        print(f"   MAE:  {metrics['mae']:.4f}")
+        print(f"   R²:   {metrics['r2']:.4f}")
+    
+    # 6. Visualizations
+    print("\n6. Generating visualizations...")
+    plot_training_history(trainer.history, save_path='training_history.png')
+    
+    if training_config.task == 'classification':
+        evaluator.plot_confusion_matrix(test_loader, save_path='confusion_matrix.png')
+        evaluator.plot_roc_curve(test_loader, save_path='roc_curve.png')
+        evaluator.plot_prediction_distribution(test_loader, save_path='pred_dist.png')
+    
+    # 7. Save model
+    print("\n7. Saving model...")
+    save_model(model, 'molecule_gcn_final.pt', model_config)
+    
+    print("\n" + "=" * 70)
+    print("Training completed successfully!")
+    print("=" * 70)
 
 if __name__ == '__main__':
     main()
