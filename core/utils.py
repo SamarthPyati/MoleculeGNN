@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Dict, Optional, Any
 
 import numpy as np
 import torch
@@ -6,6 +6,9 @@ from torch.nn import Module
 from torch_geometric.loader import DataLoader
 
 from core import MoleculeDataset
+from config import ModelConfig
+
+from models import SimpleMoleculeGCN
 
 def set_seed(seed: int = 42) -> None:
     """
@@ -120,3 +123,57 @@ def create_data_loaders(
     )
     
     return train_loader, val_loader, test_loader
+
+
+def save_model(
+    model: Module,
+    path: str,
+    config: Optional[ModelConfig] = None
+) -> None:
+    """
+    Save model and configuration into a checkpoint
+    
+    Args:
+        model: PyTorch model
+        path: Save path
+        config: Model configuration
+    """
+    checkpoint: Dict[str, Any] = {
+        'model_state_dict': model.state_dict(),
+        'config': config
+    }
+    torch.save(checkpoint, path)
+    print(f'Model saved to {path}')
+
+
+def load_model(
+    path: str,
+    model_class: type = SimpleMoleculeGCN,
+    device: str = 'cpu'
+) -> Module:
+    """
+    Load model from checkpoint
+    
+    Args:
+        path: Path to checkpoint
+        model_class: Model class to instantiate
+        device: Device to load model to
+        
+    Returns:
+        Loaded model
+    """
+    checkpoint: Dict[str, Any] = torch.load(path, map_location=torch.device(device))
+    
+    if 'config' in checkpoint and checkpoint['config'] is not None:
+        config: ModelConfig = checkpoint['config']
+        model: Module = model_class(**vars(config))
+    else:
+        # Use default configuration if not saved
+        model: Module = model_class(num_node_features=6, hidden_dim=64, num_classes=1)
+    
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model = model.to(torch.device(device))
+    model.eval()
+    
+    print(f'Model loaded from {path}')
+    return model
