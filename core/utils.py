@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 
+from torch.nn import Module
+
 def set_seed(seed: int = 42) -> None:
     """
     Set random seed for reproducibility
@@ -20,3 +22,15 @@ def set_seed(seed: int = 42) -> None:
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+def count_parameters(model: Module) -> int:
+    """
+    Count trainable parameters in model
+    
+    Args:
+        model: PyTorch model
+        
+    Returns:
+        Number of trainable parameters
+    """
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
