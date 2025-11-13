@@ -7,7 +7,7 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from rdkit import Chem
 from rdkit.Chem import Mol
-from core.dataset import get_atom_features
+from core.dataset import get_atom_features, get_bond_features
 
 
 class ModelPredictor:
@@ -49,7 +49,9 @@ class ModelPredictor:
             return None
         
         # Convert to graph
-        data: Data = self._smiles_to_graph(smiles)
+        data: Optional[Data] = self._smiles_to_graph(smiles)
+        if data is None:
+            return None
         data = data.to(self.device)
 
         with torch.no_grad():
@@ -129,19 +131,28 @@ class ModelPredictor:
         
         x: Tensor = torch.tensor(atom_features, dtype=torch.float)
         
-        # Extract edges
+        # Extract edges and edge features
         edge_index: List[List[int]] = []
+        edge_features: List[List[float]] = []
+        
         for bond in mol.GetBonds():
             i: int = bond.GetBeginAtomIdx()
             j: int = bond.GetEndAtomIdx()
+            bond_features: List[float] = get_bond_features(bond)
+            
+            # Add both directions (undirected graph)
             edge_index.append([i, j])
             edge_index.append([j, i])
+            edge_features.append(bond_features)
+            edge_features.append(bond_features)
         
         if len(edge_index) == 0:
             edge_index_tensor: Tensor = torch.zeros((2, 0), dtype=torch.long)
+            edge_attr_tensor: Tensor = torch.zeros((0, 3), dtype=torch.float)
         else:
-            edge_index_tensor: Tensor = torch.tensor(
+            edge_index_tensor = torch.tensor(
                 edge_index, dtype=torch.long
             ).t().contiguous()
+            edge_attr_tensor = torch.tensor(edge_features, dtype=torch.float)
         
-        return Data(x=x, edge_index=edge_index_tensor)
+        return Data(x=x, edge_index=edge_index_tensor, edge_attr=edge_attr_tensor)

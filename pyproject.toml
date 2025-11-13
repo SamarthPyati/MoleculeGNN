@@ -10,6 +10,7 @@ dependencies = [
     "rdkit>=2025.3.6",
     "scikit-learn>=1.7.2",
     "seaborn>=0.13.2",
+    "streamlit>=1.50.0",
     "torch>=2.8.0",
     "torch-geometric>=2.6.1",
 ]
