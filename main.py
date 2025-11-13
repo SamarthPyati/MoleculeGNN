@@ -72,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--task",
         choices=["classification", "regression"],
-        default="classification",
+        default="regression",
         help="Type of prediction task.",
     )
 
@@ -215,7 +215,13 @@ def main() -> None:
     trainer = ModelTrainer(model, training_config)
     trainer.fit(train_loader, val_loader, task=args.task)
 
-    print("\n5. Evaluating on test set...")
+    print("\n5. Saving model...")
+    save_path = Path(args.save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    save_model(model, str(save_path), model_config)
+    print(f"   Model saved to {save_path}")
+
+    print("\n6. Evaluating on test set...")
     print("-" * 70)
     evaluator = ModelEvaluator(model, training_config.device)
     if training_config.task == "classification":
@@ -232,18 +238,12 @@ def main() -> None:
         print(f"   MAE:  {metrics['mae']:.4f}")
         print(f"   R²:   {metrics['r2']:.4f}")
 
-    print("\n6. Generating visualizations...")
+    print("\n7. Generating visualizations...")
     plot_training_history(trainer.history, save_path="training_history.png")
     if training_config.task == "classification":
         evaluator.plot_confusion_matrix(test_loader, save_path="confusion_matrix.png")
         evaluator.plot_roc_curve(test_loader, save_path="roc_curve.png")
         evaluator.plot_prediction_distribution(test_loader, save_path="pred_dist.png")
-
-    print("\n7. Saving model...")
-    save_path = Path(args.save_path)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    save_model(model, str(save_path), model_config)
-    print(f"   Model saved to {save_path}")
 
     print("\n" + "=" * 70)
     print("Training completed successfully!")
