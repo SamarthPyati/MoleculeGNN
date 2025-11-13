@@ -630,7 +630,6 @@ with tab4:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666;'>
-    <p>Made with ❤️ using Streamlit | Powered by PyTorch & RDKit</p>
-    <p>© 2025 MoleculeGNN Project</p>
+    <p>© 2025 MoleculeGNN Project, Samarth Pyati</p>
 </div>
 """, unsafe_allow_html=True)
