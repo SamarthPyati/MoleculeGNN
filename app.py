@@ -112,7 +112,8 @@ def load_pretrained_model(model_path: str, model_type: Optional[str] = None) -> 
                         num_node_features=config.num_node_features,
                         hidden_dim=config.hidden_dim,
                         num_classes=config.num_classes,
-                        dropout=config.dropout
+                        dropout=config.dropout,
+                        num_layers=config.num_layers,
                     )
                 else:  # gin
                     model = AdvancedMoleculeGNN(

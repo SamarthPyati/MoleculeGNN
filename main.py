@@ -196,6 +196,7 @@ def main() -> None:
             hidden_dim=model_config.hidden_dim,
             num_classes=model_config.num_classes,
             dropout=model_config.dropout,
+            num_layers=model_config.num_layers,
         )
     else:
         model = AdvancedMoleculeGNN(
