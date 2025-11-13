@@ -1,7 +1,7 @@
 #!.venv/bin/python3
 import argparse
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple 
 
 from core.utils import (
     load_dataset,
@@ -10,10 +10,30 @@ from core.utils import (
     count_parameters,
     save_model,
 )
+
+from core.dataset import RawDatasetList
 from core.trainer import ModelTrainer
 from core.evaluator import ModelEvaluator, plot_training_history
 from models import SimpleMoleculeGCN, AdvancedMoleculeGNN
 from config import ModelConfig, TrainingConfig
+
+
+# contains map of { csv_file_path : (smiles_col, target_col)}
+_dataset_column_map: Dict[RawDatasetList, Tuple[str, str]] = {
+    RawDatasetList.ESOL :  ("smiles", "ESOL predicted log solubility in mols per litre"), 
+    RawDatasetList.FREESOLV: ("smiles", "calc"), 
+    RawDatasetList.LIPOPHILICITY: ("smiles", "exp")
+}
+
+def dataset_loader_from_map(dataset: RawDatasetList): 
+    csv_path: str = "../data/raw/" + dataset.value
+    smile_col = _dataset_column_map[dataset][0]
+    target_col = _dataset_column_map[dataset][1]
+    return load_dataset(
+        csv_path, 
+        smiles_col=smile_col, 
+        target_col=target_col
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dataset",
         type=str,
-        default="data/raw/tox21.csv",
+        default="data/raw/ESOL.csv",
         help="Path to the dataset CSV file.",
     )
     parser.add_argument(
@@ -38,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--target-col",
         type=str,
-        default="SR-HSE",
+        default="measured log solubility in mols per litre",
         help="Name of the target column in the dataset.",
     )
 

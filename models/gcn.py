@@ -4,7 +4,9 @@ from torch.nn import Linear, BatchNorm1d, Dropout, Module
 from torch_geometric.nn import GCNConv, global_mean_pool
 from torch_geometric.data import Data
 
+from config import get_device_for_torch
 
+DEVICE = get_device_for_torch()
 class SimpleMoleculeGCN(Module):
     """
     Simple Graph Convolutional Network for molecular property prediction
@@ -28,19 +30,19 @@ class SimpleMoleculeGCN(Module):
         super().__init__()
         
         # Graph convolution layers
-        self.conv1: GCNConv = GCNConv(num_node_features, hidden_dim)
-        self.bn1: BatchNorm1d = BatchNorm1d(hidden_dim)
+        self.conv1: GCNConv = GCNConv(num_node_features, hidden_dim).to(DEVICE)
+        self.bn1: BatchNorm1d = BatchNorm1d(hidden_dim).to(DEVICE)
         
-        self.conv2: GCNConv = GCNConv(hidden_dim, hidden_dim)
-        self.bn2: BatchNorm1d = BatchNorm1d(hidden_dim)
+        self.conv2: GCNConv = GCNConv(hidden_dim, hidden_dim).to(DEVICE)
+        self.bn2: BatchNorm1d = BatchNorm1d(hidden_dim).to(DEVICE)
         
-        self.conv3: GCNConv = GCNConv(hidden_dim, hidden_dim)
-        self.bn3: BatchNorm1d = BatchNorm1d(hidden_dim)
+        self.conv3: GCNConv = GCNConv(hidden_dim, hidden_dim).to(DEVICE)
+        self.bn3: BatchNorm1d = BatchNorm1d(hidden_dim).to(DEVICE)
         
         # Prediction layers
-        self.fc1: Linear = Linear(hidden_dim, hidden_dim // 2)
-        self.dropout: Dropout = Dropout(dropout)
-        self.fc2: Linear = Linear(hidden_dim // 2, num_classes)
+        self.fc1: Linear = Linear(hidden_dim, hidden_dim // 2).to(DEVICE)
+        self.dropout: Dropout = Dropout(dropout).to(DEVICE)
+        self.fc2: Linear = Linear(hidden_dim // 2, num_classes).to(DEVICE)
         
         # Initialize weights to prevent extreme values
         self._initialize_weights()
