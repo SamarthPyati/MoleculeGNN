@@ -1,4 +1,5 @@
 from typing import List, Optional
+from config.config import get_device_for_torch
 import numpy as np
 import torch
 from torch import Tensor
@@ -16,17 +17,17 @@ class ModelPredictor:
     def __init__(
         self,
         model: Module,
-        device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device: Optional[str] = None
     ) -> None:
         """
         Initialize predictor
         
         Args:
             model: Trained PyTorch model
-            device: Device to use
+            device: Device to use (auto-detected if None)
         """
-        self.model: Module = model.to(device)
-        self.device: str = device
+        self.device: str = device or get_device_for_torch()
+        self.model: Module = model.to(self.device)
         self.model.eval()
         
     def predict_smiles(
@@ -51,6 +52,12 @@ class ModelPredictor:
         # Convert to graph
         data: Optional[Data] = self._smiles_to_graph(smiles)
         if data is None:
+            return None
+        
+        # Add batch attribute for single molecule (required for pooling)
+        if data.x is not None:
+            data.batch = torch.zeros(data.x.size(0), dtype=torch.long, device=self.device)
+        else:
             return None
         data = data.to(self.device)
 

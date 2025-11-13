@@ -57,7 +57,9 @@ class AdvancedMoleculeGNN(Module):
         )
         self.conv3: GINConv = GINConv(nn3)
         
-        # Edge network
+        # Edge network (currently unused but kept for future extensions)
+        # GINConv doesn't natively support edge features, but we keep this
+        # for potential modifications or other architectures
         self.edge_encoder: Linear = Linear(num_edge_features, hidden_dim)
         
         # Prediction head
@@ -80,8 +82,10 @@ class AdvancedMoleculeGNN(Module):
         edge_attr = data.edge_attr
         batch = data.batch
         
-        # Encode edges
-        edge_embedding: Tensor = self.edge_encoder(edge_attr)
+        # Encode edges (though GINConv doesn't use edge_attr directly,
+        # we keep this for potential future use or other architectures)
+        # Note: Current GIN implementation doesn't use edge features in conv layers
+        # edge_embedding: Tensor = self.edge_encoder(edge_attr)
         
         # Message passing
         x = self.conv1(x, edge_index)

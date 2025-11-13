@@ -14,17 +14,18 @@ class ModelEvaluator:
     def __init__(
         self,
         model: Module,
-        device: str = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device: Optional[str] = None
     ) -> None:
         """
         Initialize evaluator
         
         Args:
             model: Trained PyTorch model
-            device: Device to use
+            device: Device to use (auto-detected if None)
         """
-        self.model: Module = model.to(device)
-        self.device: str = device
+        from config.config import get_device_for_torch
+        self.device: str = device or get_device_for_torch()
+        self.model: Module = model.to(self.device)
         self.model.eval()
         
     def predict(
@@ -84,9 +85,9 @@ class ModelEvaluator:
         
         metrics = {
             'accuracy': accuracy_score(targets_int, predictions_binary),
-            'precision': precision_score(targets_int, predictions_binary, zero_division=0),
-            'recall': recall_score(targets_int, predictions_binary, zero_division=0),
-            'f1': f1_score(targets_int, predictions_binary, zero_division=0),
+            'precision': precision_score(targets_int, predictions_binary, zero_division='warn'),
+            'recall': recall_score(targets_int, predictions_binary, zero_division='warn'),
+            'f1': f1_score(targets_int, predictions_binary, zero_division='warn'),
             'roc_auc': roc_auc_score(targets, predictions_prob),
         }
         
@@ -115,9 +116,10 @@ class ModelEvaluator:
         
         predictions, targets = self.predict(loader)
         
+        from sklearn.metrics import root_mean_squared_error
         metrics: Dict[str, float] = {
             'mse': mean_squared_error(targets, predictions),
-            'rmse': mean_squared_error(targets, predictions, squared=False),
+            'rmse': root_mean_squared_error(targets, predictions),
             'mae': mean_absolute_error(targets, predictions),
             'r2': r2_score(targets, predictions),
         }

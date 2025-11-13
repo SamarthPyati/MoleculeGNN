@@ -63,9 +63,13 @@ def main() -> None:
         batch_size=training_config.batch_size,
         num_workers=training_config.num_workers
     )
-    print(f"   Train: {len(train_loader.dataset)} molecules")
-    print(f"   Val:   {len(val_loader.dataset)} molecules")
-    print(f"   Test:  {len(test_loader.dataset)} molecules")
+    # Calculate dataset sizes (DataLoader doesn't have .dataset attribute for lists)
+    train_size = sum(batch.num_graphs for batch in train_loader)
+    val_size = sum(batch.num_graphs for batch in val_loader)
+    test_size = sum(batch.num_graphs for batch in test_loader)
+    print(f"   Train: {train_size} molecules")
+    print(f"   Val:   {val_size} molecules")
+    print(f"   Test:  {test_size} molecules")
     
     # 3. Initialize model
     print("\n3. Initializing model...")
@@ -94,18 +98,18 @@ def main() -> None:
     evaluator = ModelEvaluator(model, training_config.device)
     
     if training_config.task == 'classification':
-        metrics: Dict[str, float] = evaluator.evaluate_classification(test_loader)
-        print(f"   Accuracy:  {metrics['accuracy']:.4f}")
-        print(f"   Precision: {metrics['precision']:.4f}")
-        print(f"   Recall:    {metrics['recall']:.4f}")
-        print(f"   F1 Score:  {metrics['f1']:.4f}")
-        print(f"   ROC-AUC:   {metrics['roc_auc']:.4f}")
+        classification_metrics: Dict[str, float] = evaluator.evaluate_classification(test_loader)
+        print(f"   Accuracy:  {classification_metrics['accuracy']:.4f}")
+        print(f"   Precision: {classification_metrics['precision']:.4f}")
+        print(f"   Recall:    {classification_metrics['recall']:.4f}")
+        print(f"   F1 Score:  {classification_metrics['f1']:.4f}")
+        print(f"   ROC-AUC:   {classification_metrics['roc_auc']:.4f}")
     else:
-        metrics: Dict[str, float] = evaluator.evaluate_regression(test_loader)
-        print(f"   MSE:  {metrics['mse']:.4f}")
-        print(f"   RMSE: {metrics['rmse']:.4f}")
-        print(f"   MAE:  {metrics['mae']:.4f}")
-        print(f"   R²:   {metrics['r2']:.4f}")
+        regression_metrics: Dict[str, float] = evaluator.evaluate_regression(test_loader)
+        print(f"   MSE:  {regression_metrics['mse']:.4f}")
+        print(f"   RMSE: {regression_metrics['rmse']:.4f}")
+        print(f"   MAE:  {regression_metrics['mae']:.4f}")
+        print(f"   R²:   {regression_metrics['r2']:.4f}")
     
     # 6. Visualizations
     print("\n6. Generating visualizations...")

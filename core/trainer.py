@@ -28,7 +28,9 @@ class ModelTrainer:
             device: Device to use ('cuda' or 'cpu')
         """
         self.config: TrainingConfig = config
-        self.device: str = device or config.device
+        # Use get_device_for_torch for consistent device handling
+        from config.config import get_device_for_torch
+        self.device: str = device or get_device_for_torch()
         self.model: Module = model.to(self.device)
         self.history: Dict[str, List[float]] = {
             'train_loss': [],
@@ -71,8 +73,10 @@ class ModelTrainer:
             optimizer.step()
             
             total_loss += loss.item() * batch.num_graphs
-            
-        return total_loss / len(loader.dataset)
+        
+        # Calculate total number of graphs
+        total_graphs = sum(batch.num_graphs for batch in loader)
+        return total_loss / total_graphs
     
     def evaluate(
         self,
@@ -113,9 +117,13 @@ class ModelTrainer:
         predictions_tensor: Tensor = torch.cat(predictions, dim=0)
         targets_tensor: Tensor = torch.cat(targets, dim=0)
         
-        avg_loss: float = total_loss / len(loader.dataset)
+        # Calculate total number of graphs
+        total_graphs = sum(batch.num_graphs for batch in loader)
+        avg_loss: float = total_loss / total_graphs
         
         # Calculate metric based on task
+        metric: float
+        metric_name: str
         if task == 'classification':
             # flatten to shape (N,) for roc_auc_score when single-output
             predictions_prob: np.ndarray = torch.sigmoid(predictions_tensor).numpy().ravel()
@@ -137,15 +145,15 @@ class ModelTrainer:
                     'If this is a regression task set task="regression".'
                 )
 
-            metric: float = roc_auc_score(targets_bin, predictions_prob)
-            metric_name: str = 'ROC-AUC'
+            metric = float(roc_auc_score(targets_bin, predictions_prob))
+            metric_name = 'ROC-AUC'
         else:  # regression
             predictions_np: np.ndarray = predictions_tensor.numpy().ravel()
-            targets_np: np.ndarray = targets_tensor.numpy().ravel()
-            metric: float = root_mean_squared_error(
-                targets_np, predictions_np
-            )
-            metric_name: str = 'RMSE'
+            targets_np_reg: np.ndarray = targets_tensor.numpy().ravel()
+            metric = float(root_mean_squared_error(
+                targets_np_reg, predictions_np
+            ))
+            metric_name = 'RMSE'
             
         return avg_loss, metric, metric_name
     
@@ -180,10 +188,11 @@ class ModelTrainer:
             weight_decay=self.config.weight_decay
         )
         
+        loss_criterion: Module
         if task == 'classification':
-            criterion: Module = torch.nn.BCEWithLogitsLoss()
+            loss_criterion = torch.nn.BCEWithLogitsLoss()
         else:
-            criterion: Module = torch.nn.MSELoss()
+            loss_criterion = torch.nn.MSELoss()
         
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode='min', factor=0.5, patience=5
@@ -193,9 +202,9 @@ class ModelTrainer:
         patience_counter: int = 0
         
         for epoch in range(epochs):
-            train_loss: float = self.train_epoch(train_loader, optimizer, criterion)
+            train_loss: float = self.train_epoch(train_loader, optimizer, loss_criterion)
             val_loss, val_metric, metric_name = self.evaluate(
-                val_loader, criterion, task
+                val_loader, loss_criterion, task
             )
             
             self.history['train_loss'].append(train_loss)

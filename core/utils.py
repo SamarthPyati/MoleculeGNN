@@ -6,7 +6,7 @@ from torch.nn import Module
 from torch_geometric.loader import DataLoader
 
 from core import MoleculeDataset
-from config import ModelConfig
+from config import ModelConfig, get_device_for_torch
 
 from models import SimpleMoleculeGCN
 
@@ -149,7 +149,7 @@ def save_model(
 def load_model(
     path: str,
     model_class: type = SimpleMoleculeGCN,
-    device: str = 'cpu'
+    device: Optional[str] = None
 ) -> Module:
     """
     Load model from checkpoint
@@ -157,21 +157,32 @@ def load_model(
     Args:
         path: Path to checkpoint
         model_class: Model class to instantiate
-        device: Device to load model to
+        device: Device to load model to (auto-detected if None)
         
     Returns:
         Loaded model
     """
+    device = device or get_device_for_torch()
     checkpoint: Dict[str, Any] = torch.load(path, map_location=torch.device(device))
     
-    if 'config' in checkpoint and checkpoint['config'] is not None:
-        config: ModelConfig = checkpoint['config']
-        model: Module = model_class(**vars(config))
+    # Handle both checkpoint format and direct state_dict
+    model: Module
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+        saved_config = checkpoint.get('config', None)
+        if saved_config is not None:
+            config: ModelConfig = saved_config
+            model = model_class(**vars(config))
+        else:
+            # Use default configuration if not saved
+            model = model_class(num_node_features=6, hidden_dim=64, num_classes=1)
+        model.load_state_dict(state_dict)
     else:
-        # Use default configuration if not saved
-        model: Module = model_class(num_node_features=6, hidden_dim=64, num_classes=1)
+        # Direct state_dict format - need to infer model architecture
+        # This is a fallback - ideally models should be saved with config
+        model = model_class(num_node_features=6, hidden_dim=64, num_classes=1)
+        model.load_state_dict(checkpoint)
     
-    model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(torch.device(device))
     model.eval()
     
