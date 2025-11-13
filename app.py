@@ -87,7 +87,8 @@ def load_pretrained_model(model_path: str, model_type: Optional[str] = None) -> 
         config = ModelConfig()
         
         # Load state_dict to detect model type
-        checkpoint = torch.load(model_path, map_location=device)
+        # weights_only=False is safe here since we're loading our own trained models
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
         
         # Handle both checkpoint format and direct state_dict
         if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:

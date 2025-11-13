@@ -367,5 +367,6 @@ class ModelTrainer:
                 break
         
         # Load best model
-        self.model.load_state_dict(torch.load('best_model.pt'))
+        # weights_only=False is safe here since we're loading our own trained models
+        self.model.load_state_dict(torch.load('best_model.pt', weights_only=False))
         print(f'Training completed. Best validation loss: {best_val_loss:.4f}')

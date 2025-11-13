@@ -184,7 +184,8 @@ def load_model(
         Loaded model
     """
     device = device or get_device_for_torch()
-    checkpoint: Dict[str, Any] = torch.load(path, map_location=torch.device(device))
+    # weights_only=False is safe here since we're loading our own trained models
+    checkpoint: Dict[str, Any] = torch.load(path, map_location=torch.device(device), weights_only=False)
     
     # Handle both checkpoint format and direct state_dict
     model: Module
