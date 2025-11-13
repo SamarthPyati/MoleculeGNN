@@ -42,6 +42,9 @@ class SimpleMoleculeGCN(Module):
         self.dropout: Dropout = Dropout(dropout)
         self.fc2: Linear = Linear(hidden_dim // 2, num_classes)
         
+        # Initialize weights to prevent extreme values
+        self._initialize_weights()
+        
     def forward(self, data: Data) -> Tensor:
         """
         Forward pass
@@ -79,3 +82,12 @@ class SimpleMoleculeGCN(Module):
         x = self.fc2(x)
         
         return x
+    
+    def _initialize_weights(self) -> None:
+        """Initialize weights with Xavier uniform for better stability"""
+        import torch.nn.init as init
+        for m in self.modules():
+            if isinstance(m, Linear):
+                init.xavier_uniform_(m.weight, gain=1.0)
+                if m.bias is not None:
+                    init.constant_(m.bias, 0.0)

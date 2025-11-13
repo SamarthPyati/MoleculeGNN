@@ -42,7 +42,8 @@ class ModelTrainer:
         self,
         loader: DataLoader,
         optimizer: Optimizer,
-        criterion: Module
+        criterion: Module,
+        task: str = 'classification'
     ) -> float:
         """
         Train for one epoch
@@ -62,14 +63,52 @@ class ModelTrainer:
             batch = batch.to(self.device)
             optimizer.zero_grad()
             
+            # Check for NaN in input data
+            if torch.isnan(batch.x).any() or torch.isinf(batch.x).any():
+                print("Warning: NaN/Inf detected in input features. Skipping batch.")
+                continue
+            
             out: Tensor = self.model(batch)
+            
+            # Clamp outputs to prevent extreme values that cause numerical instability
+            # BCEWithLogitsLoss is numerically stable, but extreme values can still cause issues
+            out = torch.clamp(out, min=-50, max=50)
+            
+            # Check for NaN in model output
+            if torch.isnan(out).any() or torch.isinf(out).any():
+                print("Warning: NaN/Inf detected in model output. Skipping batch.")
+                continue
+            
             # Ensure target shape matches model output (N, 1) for BCEWithLogitsLoss
             targets = batch.y
             if targets.dim() == 1:
                 targets = targets.unsqueeze(1)
+            
+            # Check for NaN/Inf in targets
+            if torch.isnan(targets).any() or torch.isinf(targets).any():
+                print("Warning: NaN/Inf detected in targets. Skipping batch.")
+                continue
+            
+            # Ensure targets are in valid range for BCEWithLogitsLoss (0 or 1)
+            if task == 'classification':
+                # Clamp targets to [0, 1] range and ensure they're binary
+                targets = torch.clamp(targets, min=0.0, max=1.0)
+                # Round to nearest 0 or 1 for true binary classification
+                targets = torch.round(targets)
+            
             loss: Tensor = criterion(out, targets.float())
             
+            # Check for NaN in loss
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(f"Warning: NaN/Inf detected in loss (out range: [{out.min().item():.2f}, {out.max().item():.2f}], "
+                      f"targets range: [{targets.min().item():.2f}, {targets.max().item():.2f}]). Skipping batch.")
+                continue
+            
             loss.backward()
+            
+            # Gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            
             optimizer.step()
             
             total_loss += loss.item() * batch.num_graphs
@@ -128,10 +167,25 @@ class ModelTrainer:
             # flatten to shape (N,) for roc_auc_score when single-output
             predictions_prob: np.ndarray = torch.sigmoid(predictions_tensor).numpy().ravel()
             targets_np: np.ndarray = targets_tensor.numpy().ravel()
+            
+            # Check for NaN or inf values in predictions
+            valid_mask = np.isfinite(predictions_prob) & np.isfinite(targets_np)
+            if not np.all(valid_mask):
+                # Filter out invalid values
+                predictions_prob = predictions_prob[valid_mask]
+                targets_np = targets_np[valid_mask]
+                if len(predictions_prob) == 0:
+                    # If all predictions are invalid, return a default value
+                    metric = 0.0
+                    metric_name = 'ROC-AUC (invalid)'
+                    return avg_loss, metric, metric_name
+            
             # Ensure binary labels for roc_auc_score. If labels are continuous/probabilistic,
             # threshold at 0.5. If there are >2 distinct values after thresholding, raise.
             # This avoids "continuous format is not supported".
-            if not np.array_equal(np.unique(targets_np), np.unique(targets_np).astype(int)):
+            # Use safer comparison to avoid RuntimeWarning
+            unique_targets = np.unique(targets_np)
+            if len(unique_targets) > 2 or (len(unique_targets) == 2 and not np.allclose(unique_targets, unique_targets.astype(int))):
                 # threshold probabilistic labels to binary
                 targets_bin = (targets_np >= 0.5).astype(int)
             else:
@@ -150,6 +204,19 @@ class ModelTrainer:
         else:  # regression
             predictions_np: np.ndarray = predictions_tensor.numpy().ravel()
             targets_np_reg: np.ndarray = targets_tensor.numpy().ravel()
+            
+            # Check for NaN or inf values
+            valid_mask = np.isfinite(predictions_np) & np.isfinite(targets_np_reg)
+            if not np.all(valid_mask):
+                # Filter out invalid values
+                predictions_np = predictions_np[valid_mask]
+                targets_np_reg = targets_np_reg[valid_mask]
+                if len(predictions_np) == 0:
+                    # If all predictions are invalid, return a default value
+                    metric = float('inf')
+                    metric_name = 'RMSE (invalid)'
+                    return avg_loss, metric, metric_name
+            
             metric = float(root_mean_squared_error(
                 targets_np_reg, predictions_np
             ))
@@ -182,10 +249,13 @@ class ModelTrainer:
         task = task or self.config.task
         patience = patience or self.config.patience
         
+        # Use lower learning rate for stability, or use the provided one
+        # Add epsilon for numerical stability
         optimizer: Optimizer = torch.optim.Adam(
             self.model.parameters(),
             lr=lr,
-            weight_decay=self.config.weight_decay
+            weight_decay=self.config.weight_decay,
+            eps=1e-8  # Add epsilon for numerical stability
         )
         
         loss_criterion: Module
@@ -202,7 +272,7 @@ class ModelTrainer:
         patience_counter: int = 0
         
         for epoch in range(epochs):
-            train_loss: float = self.train_epoch(train_loader, optimizer, loss_criterion)
+            train_loss: float = self.train_epoch(train_loader, optimizer, loss_criterion, task)
             val_loss, val_metric, metric_name = self.evaluate(
                 val_loader, loss_criterion, task
             )

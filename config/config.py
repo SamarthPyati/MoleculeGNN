@@ -16,7 +16,7 @@ class TrainingConfig:
     batch_size: int = 32
     learning_rate: float = 0.001
     weight_decay: float = 1e-5
-    epochs: int = 100
+    epochs: int = 50
     patience: int = 15
     device: str = get_device_for_torch()
     num_workers: int = 4

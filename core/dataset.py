@@ -87,6 +87,11 @@ class MoleculeDataset(Dataset):
         smiles: str = self.df.iloc[idx][self.smiles_col]
         target: float = self.df.iloc[idx][self.target_col]
         
+        # Check for NaN or invalid target values
+        import math
+        if math.isnan(target) or math.isinf(target):
+            return None
+        
         # Convert SMILES to graph
         mol: Optional[Mol] = Chem.MolFromSmiles(smiles)
         if mol is None:
