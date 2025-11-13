@@ -77,7 +77,7 @@ def parse_args() -> argparse.Namespace:
     )
 
     # Training hyperparameters
-    parser.add_argument("--batch-size", type=int, default=32, help="Training batch size.")
+    parser.add_argument("--batch-size", type=int, default=128, help="Training batch size.")
     parser.add_argument("--epochs", type=int, default=100, help="Maximum number of training epochs.")
     parser.add_argument("--learning-rate", type=float, default=0.001, help="Optimizer learning rate.")
     parser.add_argument("--weight-decay", type=float, default=1e-5, help="Optimizer weight decay.")
@@ -103,7 +103,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=4,
+        default=8,
         help="Number of DataLoader workers.",
     )
 
@@ -209,6 +209,15 @@ def main() -> None:
     print(f"   Model: {model.__class__.__name__}")
     print(f"   Parameters: {num_params:,}")
     print(f"   Device: {training_config.device}")
+    
+    # Show GPU optimization status
+    import torch
+    if torch.backends.mps.is_available():
+        print("   GPU: Apple Silicon (MPS) - Mixed precision enabled")
+    elif torch.cuda.is_available():
+        print("   GPU: CUDA - Mixed precision enabled")
+    else:
+        print("   Device: CPU")
 
     print("\n4. Training model...")
     print("-" * 70)

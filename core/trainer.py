@@ -11,6 +11,17 @@ from torch_geometric.loader import DataLoader
 from sklearn.metrics import roc_auc_score, root_mean_squared_error
 from tqdm import tqdm
 
+# Import autocast for mixed precision training
+try:
+    from torch.cuda.amp import autocast as cuda_autocast, GradScaler
+    HAS_CUDA_AMP = True
+except ImportError:
+    HAS_CUDA_AMP = False
+    GradScaler = None
+
+# For MPS and newer PyTorch versions, check for torch.amp.autocast at runtime
+HAS_AMP = hasattr(torch, 'amp') and hasattr(torch.amp, 'autocast')
+
 class ModelTrainer:
     """Trainer class for molecular property prediction"""
     def __init__(
@@ -32,6 +43,15 @@ class ModelTrainer:
         from config.config import get_device_for_torch
         self.device: str = device or get_device_for_torch()
         self.model: Module = model.to(self.device)
+        
+        # Enable mixed precision training for faster computation (CUDA and MPS)
+        # MPS supports torch.amp.autocast for mixed precision
+        self.use_amp = (torch.cuda.is_available() or torch.backends.mps.is_available()) and (HAS_CUDA_AMP or HAS_AMP)
+        if self.use_amp and torch.cuda.is_available() and HAS_CUDA_AMP and GradScaler is not None:
+            self.scaler = GradScaler()
+        else:
+            self.scaler = None
+        
         self.history: Dict[str, List[float]] = {
             'train_loss': [],
             'val_loss': [],
@@ -59,8 +79,15 @@ class ModelTrainer:
         self.model.train()
         total_loss: float = 0.0
         
+        # Use non-blocking transfer for CUDA, regular for MPS
+        non_blocking = torch.cuda.is_available() and not torch.backends.mps.is_available()
+        
+        # Determine device type for autocast
+        device_type = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
+        
         for batch in tqdm(loader, desc='Training'):
-            batch = batch.to(self.device)
+            # Move batch to device with non-blocking transfer (CUDA only)
+            batch = batch.to(self.device, non_blocking=non_blocking)
             optimizer.zero_grad()
             
             # Check for NaN in input data
@@ -68,49 +95,68 @@ class ModelTrainer:
                 print("Warning: NaN/Inf detected in input features. Skipping batch.")
                 continue
             
-            out: Tensor = self.model(batch)
-            
-            # Clamp outputs to prevent extreme values that cause numerical instability
-            # BCEWithLogitsLoss is numerically stable, but extreme values can still cause issues
-            out = torch.clamp(out, min=-50, max=50)
-            
-            # Check for NaN in model output
-            if torch.isnan(out).any() or torch.isinf(out).any():
-                print("Warning: NaN/Inf detected in model output. Skipping batch.")
-                continue
-            
-            # Ensure target shape matches model output (N, 1) for BCEWithLogitsLoss
-            targets = batch.y
-            if targets.dim() == 1:
-                targets = targets.unsqueeze(1)
-            
-            # Check for NaN/Inf in targets
-            if torch.isnan(targets).any() or torch.isinf(targets).any():
-                print("Warning: NaN/Inf detected in targets. Skipping batch.")
-                continue
-            
-            # Ensure targets are in valid range for BCEWithLogitsLoss (0 or 1)
-            if task == 'classification':
-                # Clamp targets to [0, 1] range and ensure they're binary
-                targets = torch.clamp(targets, min=0.0, max=1.0)
-                # Round to nearest 0 or 1 for true binary classification
-                targets = torch.round(targets)
-            
-            loss: Tensor = criterion(out, targets.float())
+            # Use mixed precision training for faster computation
+            if self.use_amp:
+                if device_type == 'cuda' and HAS_CUDA_AMP:
+                    autocast_context = cuda_autocast()
+                elif HAS_AMP:
+                    # Use torch.amp.autocast for MPS
+                    autocast_context = torch.amp.autocast(device_type=device_type)  # type: ignore
+                else:
+                    autocast_context = torch.no_grad()
+            else:
+                autocast_context = torch.no_grad()
+            with autocast_context:
+                out: Tensor = self.model(batch)
+                
+                # Clamp outputs to prevent extreme values that cause numerical instability
+                # BCEWithLogitsLoss is numerically stable, but extreme values can still cause issues
+                out = torch.clamp(out, min=-50, max=50)
+                
+                # Check for NaN in model output
+                if torch.isnan(out).any() or torch.isinf(out).any():
+                    print("Warning: NaN/Inf detected in model output. Skipping batch.")
+                    continue
+                
+                # Ensure target shape matches model output (N, 1) for BCEWithLogitsLoss
+                targets = batch.y
+                if targets.dim() == 1:
+                    targets = targets.unsqueeze(1)
+                
+                # Check for NaN/Inf in targets
+                if torch.isnan(targets).any() or torch.isinf(targets).any():
+                    print("Warning: NaN/Inf detected in targets. Skipping batch.")
+                    continue
+                
+                # Ensure targets are in valid range for BCEWithLogitsLoss (0 or 1)
+                if task == 'classification':
+                    # Clamp targets to [0, 1] range and ensure they're binary
+                    targets = torch.clamp(targets, min=0.0, max=1.0)
+                    # Round to nearest 0 or 1 for true binary classification
+                    targets = torch.round(targets)
+                
+                loss: Tensor = criterion(out, targets.float())
             
             # Check for NaN in loss
             if torch.isnan(loss) or torch.isinf(loss):
-                print(f"Warning: NaN/Inf detected in loss (out range: [{out.min().item():.2f}, {out.max().item():.2f}], "
-                      f"targets range: [{targets.min().item():.2f}, {targets.max().item():.2f}]). Skipping batch.")
+                print(f"Warning: NaN/Inf detected in loss. Skipping batch.")
                 continue
             
-            loss.backward()
+            # Scale loss and backward pass for mixed precision (CUDA only)
+            if self.scaler is not None:
+                self.scaler.scale(loss).backward()
+                # Gradient clipping to prevent exploding gradients
+                self.scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                self.scaler.step(optimizer)
+                self.scaler.update()
+            else:
+                loss.backward()
+                # Gradient clipping to prevent exploding gradients
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                optimizer.step()
             
-            # Gradient clipping to prevent exploding gradients
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            
-            optimizer.step()
-            
+            # Use .item() only once to avoid multiple CPU-GPU syncs
             total_loss += loss.item() * batch.num_graphs
         
         # Calculate total number of graphs
@@ -139,19 +185,37 @@ class ModelTrainer:
         predictions: List[Tensor] = []
         targets: List[Tensor] = []
         
+        # Use non-blocking transfer for CUDA, regular for MPS
+        non_blocking = torch.cuda.is_available() and not torch.backends.mps.is_available()
+        device_type = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
+        
         with torch.no_grad():
             for batch in loader:
-                batch = batch.to(self.device)
-                out: Tensor = self.model(batch)
-                # match shapes as in training
-                batch_targets = batch.y
-                if batch_targets.dim() == 1:
-                    batch_targets = batch_targets.unsqueeze(1)
-                loss: Tensor = criterion(out, batch_targets.float())
+                batch = batch.to(self.device, non_blocking=non_blocking)
+                
+                # Use mixed precision for evaluation too
+                if self.use_amp:
+                    if device_type == 'cuda' and HAS_CUDA_AMP:
+                        autocast_context = cuda_autocast()
+                    elif HAS_AMP:
+                        # Use torch.amp.autocast for MPS
+                        autocast_context = torch.amp.autocast(device_type=device_type)  # type: ignore
+                    else:
+                        autocast_context = torch.no_grad()
+                else:
+                    autocast_context = torch.no_grad()
+                with autocast_context:
+                    out: Tensor = self.model(batch)
+                    # match shapes as in training
+                    batch_targets = batch.y
+                    if batch_targets.dim() == 1:
+                        batch_targets = batch_targets.unsqueeze(1)
+                    loss: Tensor = criterion(out, batch_targets.float())
                 
                 total_loss += loss.item() * batch.num_graphs
-                predictions.append(out.cpu())
-                targets.append(batch_targets.cpu())
+                # Move to CPU asynchronously if possible
+                predictions.append(out.detach().cpu())
+                targets.append(batch_targets.detach().cpu())
         
         predictions_tensor: Tensor = torch.cat(predictions, dim=0)
         targets_tensor: Tensor = torch.cat(targets, dim=0)

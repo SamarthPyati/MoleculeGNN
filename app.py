@@ -212,7 +212,7 @@ with st.sidebar:
     st.subheader("📁 Load Model")
     model_path = st.text_input(
         "Model Path",
-        value="notebooks/best_model.pt",
+        value="molecule_gnn_final.pt",
         help="Path to the pretrained model checkpoint"
     )
     

@@ -28,7 +28,8 @@ def set_seed(seed: int = 42) -> None:
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+        # Enable benchmark for faster training (disable if reproducibility is critical)
+        torch.backends.cudnn.benchmark = True
 
 def count_parameters(model: Module) -> int:
     """
@@ -102,24 +103,44 @@ def create_data_loaders(
         random_state=seed
     )
     
-    # Create loaders
+    # Determine if we should use pin_memory (only for CUDA, not MPS)
+    import torch
+    use_pin_memory = torch.cuda.is_available() and not torch.backends.mps.is_available()
+    
+    # For MPS, use fewer workers to avoid overhead (MPS handles parallelism differently)
+    # For CUDA, use more workers for better data loading
+    effective_num_workers = num_workers if torch.cuda.is_available() else min(num_workers, 2)
+    
+    # Create loaders with optimizations for GPU training
     train_loader: DataLoader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers
+        num_workers=effective_num_workers,
+        pin_memory=use_pin_memory,
+        persistent_workers=effective_num_workers > 0,
+        prefetch_factor=2 if effective_num_workers > 0 else None,
+        drop_last=False
     )
     val_loader: DataLoader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers
+        num_workers=effective_num_workers,
+        pin_memory=use_pin_memory,
+        persistent_workers=effective_num_workers > 0,
+        prefetch_factor=2 if effective_num_workers > 0 else None,
+        drop_last=False
     )
     test_loader: DataLoader = DataLoader(
         test_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers
+        num_workers=effective_num_workers,
+        pin_memory=use_pin_memory,
+        persistent_workers=effective_num_workers > 0,
+        prefetch_factor=2 if effective_num_workers > 0 else None,
+        drop_last=False
     )
     
     return train_loader, val_loader, test_loader
