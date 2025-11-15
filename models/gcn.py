@@ -59,7 +59,7 @@ class SimpleMoleculeGCN(Module):
             self.input_proj = None
         
         # Graph convolution layers with residual connections
-        self.convs = torch.nn.ModuleList()
+        self.convs = torch.nn.ModuleList()  
         self.batch_norms = torch.nn.ModuleList()
         self.layer_norms = torch.nn.ModuleList()
         
