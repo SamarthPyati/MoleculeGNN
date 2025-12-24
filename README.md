@@ -12,8 +12,6 @@ Predicting molecular properties using Graph Neural Networks (GNNs). This project
 
 **Why GNNs?**: Traditional machine learning treats molecules as fixed-length feature vectors (fingerprints), losing structural information. GNNs learn directly from the molecular graph structure, capturing complex patterns like functional groups and ring systems.
 
-<!-- **Dataset**: Tox21 - 8,000 molecules labeled for 12 different toxicity endpoints -->
-
 ## Architecture
 
 - **Input**: Molecular structure (SMILES string)
@@ -21,6 +19,36 @@ Predicting molecular properties using Graph Neural Networks (GNNs). This project
 - **Model**: Graph Convolutional Network (GCN) 
 - **Output**: Physical Property Prediction and Toxicity Prediction for biomolecules
 
+## Installation
+
+1. Create a virtual environment and install dependencies:
+   ```bash
+   python -m venv .venv
+   . .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. Put raw CSV datasets in `data/raw/` (example: `data/raw/ESOL.csv`).
+
+3. Run training:
+   ```bash
+   python main.py --dataset data/raw/ESOL.csv --model gcn --task regression
+   ```
+
+## Run the app
+
+- Streamlit UI (recommended):
+  From the project root run:
+  ```bash
+  streamlit run app.py --server.port 8501
+  ```
+  Then open http://localhost:8501 in your browser.
+
+Default model path used by the UI: `molecule_gnn_final.pt`
+
+## Notes
+- Modify command-line args in `main.py` for batch size, epochs, splits, etc.
+- Trained model saved to the path given by `--save-path`.
 
 ## License
 This project is licensed under the MIT License - see the LICENSE file for details.
